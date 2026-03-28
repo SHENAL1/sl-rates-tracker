@@ -58,29 +58,105 @@ function bankSlug(bank) {
 
 // ─── Gold rates ───────────────────────────────────────────────────────────────
 
+// ─── Live gold & exchange rate fetchers ──────────────────────────────────────
+
+async function fetchLiveGoldUSD() {
+  // Primary: goldprice.org (no key, CORS-friendly)
+  try {
+    const r = await fetch("https://data-asg.goldprice.org/dbXRates/USD");
+    const d = await r.json();
+    const price = d?.items?.[0]?.xauPrice;
+    if (price) return parseFloat(price);
+  } catch (_) {}
+
+  // Fallback: metals.live (no key)
+  try {
+    const r = await fetch("https://metals.live/api/v1/latest");
+    const d = await r.json();
+    const price = Array.isArray(d) ? d[0]?.gold : d?.gold;
+    if (price) return parseFloat(price);
+  } catch (_) {}
+
+  return null;
+}
+
+async function fetchLiveUSDtoLKR() {
+  // open.er-api.com — completely free, no key, CORS-friendly
+  try {
+    const r = await fetch("https://open.er-api.com/v6/latest/USD");
+    const d = await r.json();
+    const rate = d?.rates?.LKR;
+    if (rate) return parseFloat(rate);
+  } catch (_) {}
+
+  // Fallback: frankfurter.app
+  try {
+    const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=LKR");
+    const d = await r.json();
+    const rate = d?.rates?.LKR;
+    if (rate) return parseFloat(rate);
+  } catch (_) {}
+
+  return null;
+}
+
+function calcGoldRates(goldUSD, usdToLKR) {
+  const perGram = (goldUSD * usdToLKR) / 31.1035;
+  return {
+    gold_usd_per_oz:        goldUSD,
+    usd_to_lkr:             usdToLKR,
+    gold_lkr_per_gram_24k:  Math.round(perGram * 100) / 100,
+    gold_lkr_per_gram_22k:  Math.round(perGram * (22/24) * 100) / 100,
+    gold_lkr_per_gram_21k:  Math.round(perGram * (21/24) * 100) / 100,
+    gold_lkr_per_gram_18k:  Math.round(perGram * (18/24) * 100) / 100,
+    gold_lkr_per_pavan_22k: Math.round(perGram * (22/24) * 8 * 100) / 100,
+  };
+}
+
+// ─── Gold rates ───────────────────────────────────────────────────────────────
+
 async function loadGoldRates() {
   document.getElementById("gold-loading").classList.remove("hidden");
   document.getElementById("gold-content").classList.add("hidden");
   document.getElementById("gold-error").classList.add("hidden");
 
   try {
-    const data = await supaFetch("gold_rates", {
-      select: "*",
-      order:  "scraped_date.desc",
-      limit:  "1",
-    });
+    // Fetch gold price + exchange rate live in parallel
+    const [goldUSD, usdToLKR] = await Promise.all([
+      fetchLiveGoldUSD(),
+      fetchLiveUSDtoLKR(),
+    ]);
 
-    if (!data || data.length === 0) throw new Error("No gold data available.");
-    const g = data[0];
+    let g;
 
-    document.getElementById("gold-usd").textContent  = fmtUSD(g.gold_usd_per_oz);
-    document.getElementById("gold-fx").textContent   = `1 USD = LKR ${Number(g.usd_to_lkr).toFixed(2)}`;
-    document.getElementById("gold-24k").textContent  = fmtLKR(g.gold_lkr_per_gram_24k);
-    document.getElementById("gold-22k").textContent  = fmtLKR(g.gold_lkr_per_gram_22k);
-    document.getElementById("gold-21k").textContent  = fmtLKR(g.gold_lkr_per_gram_21k);
-    document.getElementById("gold-18k").textContent  = fmtLKR(g.gold_lkr_per_gram_18k);
+    if (goldUSD && usdToLKR) {
+      // Live data — calculate fresh
+      g = calcGoldRates(goldUSD, usdToLKR);
+      g.scraped_date = new Date().toISOString().split("T")[0];
+      g.isLive = true;
+    } else {
+      // Fallback to Supabase cached data if live APIs fail
+      console.warn("[Gold] Live APIs failed, falling back to Supabase cache.");
+      const data = await supaFetch("gold_rates", {
+        select: "*",
+        order:  "scraped_date.desc",
+        limit:  "1",
+      });
+      if (!data || data.length === 0) throw new Error("No gold data available.");
+      g = data[0];
+      g.isLive = false;
+    }
+
+    document.getElementById("gold-usd").textContent   = fmtUSD(g.gold_usd_per_oz);
+    document.getElementById("gold-fx").textContent    = `1 USD = LKR ${Number(g.usd_to_lkr).toFixed(2)}`;
+    document.getElementById("gold-24k").textContent   = fmtLKR(g.gold_lkr_per_gram_24k);
+    document.getElementById("gold-22k").textContent   = fmtLKR(g.gold_lkr_per_gram_22k);
+    document.getElementById("gold-21k").textContent   = fmtLKR(g.gold_lkr_per_gram_21k);
+    document.getElementById("gold-18k").textContent   = fmtLKR(g.gold_lkr_per_gram_18k);
     document.getElementById("gold-pavan").textContent = fmtLKR(g.gold_lkr_per_pavan_22k);
-    document.getElementById("gold-date").textContent  = fmtDate(g.scraped_date);
+    const goldDateEl = document.getElementById("gold-date");
+    goldDateEl.textContent = g.isLive ? "⚡ Live" : fmtDate(g.scraped_date);
+    goldDateEl.className   = g.isLive ? "date-badge live" : "date-badge";
 
     document.getElementById("gold-loading").classList.add("hidden");
     document.getElementById("gold-content").classList.remove("hidden");

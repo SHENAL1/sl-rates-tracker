@@ -152,6 +152,10 @@ body {
   border-radius: 99px;
   font-weight: 500;
 }
+.date-badge.live {
+  background: #DCFCE7;
+  color: var(--green);
+}
 
 /* ── Loading & error states ──────────────────────────────────── */
 .loading-state, .error-state {
