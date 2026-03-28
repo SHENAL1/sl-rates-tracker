@@ -1,11 +1,15 @@
 """
 Sampath Bank Sri Lanka - FD Rate Scraper
 Page: https://www.sampath.lk/rates-and-charges?activeTab=interest-rates-local
-Strategy: JS-rendered page — uses Playwright to fully render before scraping.
 
-NOTE: The Sampath rates page has BOTH exchange rates and FD interest rates.
-We must be careful to only pick up the FD/deposit interest rate tables,
-not the forex exchange rate tables (which have currency codes as "tenures").
+The Sampath rates page contains MULTIPLE tables:
+  - Foreign exchange rates (currency codes like USD, GBP — NOT what we want)
+  - Fixed deposit interest rates (month/year tenures — THIS is what we want)
+
+Strict filtering rules:
+  1. Tenure MUST contain a time unit (month/year/day/week) or be a plain number
+  2. Rate MUST be between 1.0% and 20.0% (FD rates in SL are never outside this)
+  3. Deduplicate by (tenure, rate) pair
 """
 
 import re
@@ -20,48 +24,40 @@ except ImportError:
 
 URL = "https://www.sampath.lk/rates-and-charges?activeTab=interest-rates-local"
 
-# Currency codes — if a row's tenure looks like this, it's an exchange rate table
-CURRENCY_CODES = {
-    "USD", "GBP", "EUR", "AUD", "CAD", "SGD", "CHF", "JPY", "INR", "HKD",
-    "NZD", "SEK", "NOK", "DKK", "AED", "SAR", "MYR", "THB", "QAR", "KWD",
-    "BHD", "OMR", "PKR", "CNY", "ZAR"
-}
+# Sri Lankan FD rates are always within this range
+FD_RATE_MIN = 1.0
+FD_RATE_MAX = 20.0
 
-# FD rates are always in this range (percent p.a.)
-MIN_RATE = 1.0
-MAX_RATE = 25.0
+# Time keywords that a valid FD tenure must contain
+TIME_UNITS = ["month", "year", "day", "week"]
 
-# Keywords that indicate an FD/deposit interest rate section
-FD_SECTION_KEYWORDS = [
-    "fixed deposit", "term deposit", "fd", "deposit rate",
-    "savings", "interest rate", "local currency", "lkr deposit"
-]
 
-# Keywords that indicate an exchange rate section — skip these
-FOREX_SECTION_KEYWORDS = [
-    "exchange rate", "forex", "foreign currency", "buying", "selling",
-    "tt buying", "tt selling", "telegraphic"
-]
+def _clean(text: str) -> str:
+    """Normalize whitespace in a cell value."""
+    return " ".join(text.split()).strip()
 
 
 def _is_valid_tenure(text: str) -> bool:
-    """Return True if text looks like a deposit tenure (not a currency code)."""
-    t = text.strip().upper()
-    if t in CURRENCY_CODES:
+    """Return True only if text looks like a deposit tenure (not a currency code)."""
+    t = _clean(text).lower()
+    if not t:
         return False
-    # Must contain a time unit or number
-    if any(k in text.lower() for k in ["month", "year", "day", "week"]):
+    # Must contain a time unit
+    if any(unit in t for unit in TIME_UNITS):
         return True
-    # Could be just a number like "3", "6", "12"
+    # Or be a plain number like "3", "12"
     if re.match(r"^\d+$", t):
         return True
     return False
 
 
-def _is_valid_rate(value: str) -> float | None:
-    """Return rate float if it looks like an interest rate, else None."""
-    cleaned = value.replace("%", "").strip()
-    # Handle range — take the higher value
+def _parse_fd_rate(value: str) -> float | None:
+    """
+    Parse a rate value. Returns float ONLY if it's in the valid FD rate range.
+    Exchange rates (e.g. 312 LKR/USD) will be rejected since they're > 20.
+    """
+    cleaned = _clean(value).replace("%", "")
+    # Handle ranges like "7.50 - 8.00" — take the higher value
     range_match = re.match(r"([\d.]+)\s*[-–]\s*([\d.]+)", cleaned)
     if range_match:
         rate = float(range_match.group(2))
@@ -71,20 +67,9 @@ def _is_valid_rate(value: str) -> float | None:
         except ValueError:
             return None
 
-    # Interest rates are between 1% and 25% — exchange rates are much higher
-    if MIN_RATE <= rate <= MAX_RATE:
+    if FD_RATE_MIN <= rate <= FD_RATE_MAX:
         return rate
     return None
-
-
-def _is_forex_section(heading_text: str) -> bool:
-    text = heading_text.lower()
-    return any(k in text for k in FOREX_SECTION_KEYWORDS)
-
-
-def _is_fd_section(heading_text: str) -> bool:
-    text = heading_text.lower()
-    return any(k in text for k in FD_SECTION_KEYWORDS)
 
 
 def scrape() -> list[dict]:
@@ -105,100 +90,67 @@ def scrape() -> list[dict]:
 
         try:
             page.goto(URL, wait_until="networkidle", timeout=30000)
+            page.wait_for_timeout(2000)
 
-            # Try to activate the interest rates tab
-            try:
-                for selector in [
-                    "text=Interest Rates",
-                    "[data-tab='interest-rates-local']",
-                    "a[href*='interest-rates-local']",
-                ]:
-                    try:
-                        el = page.locator(selector).first
-                        if el.is_visible(timeout=2000):
-                            el.click()
-                            page.wait_for_timeout(2000)
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
+            # Try to click into the interest rates tab
+            for selector in [
+                "text=Interest Rates (Local)",
+                "text=Interest Rates",
+                "[data-tab='interest-rates-local']",
+                "a[href*='interest-rates-local']",
+            ]:
+                try:
+                    el = page.locator(selector).first
+                    if el.is_visible(timeout=2000):
+                        el.click()
+                        page.wait_for_timeout(2000)
+                        break
+                except Exception:
+                    continue
 
             page.wait_for_selector("table", timeout=15000)
-            page.wait_for_timeout(1000)
 
-            # Get all headings and tables together — we need to know which
-            # section each table belongs to
-            sections = page.evaluate("""
+            # Extract all table data
+            all_tables = page.evaluate("""
                 () => {
-                    const results = [];
-                    // Walk DOM and collect headings + tables in order
-                    const walker = document.createTreeWalker(
-                        document.body,
-                        NodeFilter.SHOW_ELEMENT,
-                        null
-                    );
-                    let currentHeading = '';
-                    let node;
-                    while (node = walker.nextNode()) {
-                        const tag = node.tagName.toLowerCase();
-                        if (['h1','h2','h3','h4','h5','strong','b'].includes(tag)) {
-                            const txt = node.innerText?.trim();
-                            if (txt && txt.length < 200) currentHeading = txt;
-                        }
-                        if (tag === 'table') {
-                            const rows = [];
-                            node.querySelectorAll('tr').forEach(tr => {
-                                const cells = [];
-                                tr.querySelectorAll('th,td').forEach(td => {
-                                    cells.push(td.innerText?.trim() || '');
-                                });
-                                if (cells.length > 0) rows.push(cells);
+                    const tables = [];
+                    document.querySelectorAll('table').forEach(table => {
+                        const rows = [];
+                        table.querySelectorAll('tr').forEach(tr => {
+                            const cells = [];
+                            tr.querySelectorAll('th, td').forEach(td => {
+                                cells.push(td.innerText || '');
                             });
-                            results.push({ heading: currentHeading, rows });
-                        }
-                    }
-                    return results;
+                            rows.push(cells);
+                        });
+                        tables.push(rows);
+                    });
+                    return tables;
                 }
             """)
 
-            for section in sections:
-                heading = section.get("heading", "")
-                rows = section.get("rows", [])
-
-                # Skip if the section heading says it's a forex/exchange section
-                if _is_forex_section(heading):
-                    continue
-
-                # Process each row
-                for row in rows:
+            for table_rows in all_tables:
+                for row in table_rows:
                     if len(row) < 2:
                         continue
 
-                    # Skip header rows
-                    row_text = " ".join(row).lower()
-                    if any(k in row_text for k in ["tenure", "period", "term", "rate", "interest", "maturity"]):
-                        if not any(k in row_text for k in ["month", "year", "day"]):
-                            continue
+                    tenure = _clean(row[0])
 
-                    # Clean whitespace (Sampath page has lots of \n and spaces in cells)
-                    tenure = " ".join(row[0].split()).strip()
-
-                    # Skip if tenure looks like a currency code
-                    if not tenure or tenure.upper() in CURRENCY_CODES:
+                    # STRICT: only accept valid time-based tenures
+                    if not _is_valid_tenure(tenure):
                         continue
 
-                    # Find the rate — must be a valid interest rate (1–25%)
+                    # Find a valid FD rate in the remaining cells
                     rate = None
                     notes = ""
                     for i, val in enumerate(row[1:], 1):
-                        rate = _is_valid_rate(val)
+                        rate = _parse_fd_rate(val)
                         if rate is not None:
-                            remaining = [row[j] for j in range(i+1, len(row)) if row[j].strip()]
+                            remaining = [_clean(row[j]) for j in range(i+1, len(row)) if _clean(row[j])]
                             notes = " | ".join(remaining) if remaining else ""
                             break
 
-                    if tenure and rate is not None:
+                    if rate is not None:
                         results.append({
                             "bank": "Sampath Bank",
                             "tenure": tenure,
@@ -212,11 +164,11 @@ def scrape() -> list[dict]:
         finally:
             browser.close()
 
-    # Remove duplicates
+    # Deduplicate by (tenure, rate) pair
     seen = set()
     deduped = []
     for r in results:
-        key = (r["tenure"].lower().strip(), r["rate_percent"])
+        key = (r["tenure"].lower(), r["rate_percent"])
         if key not in seen:
             seen.add(key)
             deduped.append(r)
@@ -224,7 +176,7 @@ def scrape() -> list[dict]:
     if not deduped:
         print("[Sampath] WARNING: No FD rate tables found.")
     else:
-        print(f"[Sampath] Found {len(deduped)} rate entries.")
+        print(f"[Sampath] Found {len(deduped)} entries.")
 
     return deduped
 
