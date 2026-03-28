@@ -53,6 +53,8 @@ function bankSlug(bank) {
   if (b.includes("commercial")) return "combank";
   if (b.includes("sampath"))    return "sampath";
   if (b.includes("hnb"))        return "hnb";
+  if (b.includes("nsb"))        return "nsb";
+  if (b.includes("ntb"))        return "ntb";
   return b.replace(/\s+/g, "-");
 }
 

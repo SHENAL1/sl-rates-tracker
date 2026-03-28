@@ -312,6 +312,8 @@ body {
 .bank-badge.combank  { background: #B22222; }
 .bank-badge.sampath  { background: #1A5276; }
 .bank-badge.hnb      { background: #1E8449; }
+.bank-badge.nsb      { background: #7D3C98; }
+.bank-badge.ntb      { background: #D35400; }
 
 .rate-value { color: var(--green); }
 

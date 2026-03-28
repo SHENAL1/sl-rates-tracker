@@ -33,6 +33,8 @@ except ImportError:
 from banks.combank import scrape as scrape_combank
 from banks.sampath import scrape as scrape_sampath
 from banks.hnb import scrape as scrape_hnb
+from banks.nsb import scrape as scrape_nsb
+from banks.ntb import scrape as scrape_ntb
 from gold import scrape as scrape_gold
 
 
@@ -106,6 +108,8 @@ def run(dry_run=False, banks_only=False, gold_only=False):
             ("Commercial Bank", scrape_combank),
             ("Sampath Bank",    scrape_sampath),
             ("HNB",             scrape_hnb),
+            ("NSB",             scrape_nsb),
+            ("NTB",             scrape_ntb),
         ]
 
         for bank_name, scraper_fn in bank_scrapers:
