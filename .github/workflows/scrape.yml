@@ -1,0 +1,73 @@
+name: Daily Rates Scraper
+
+on:
+  # Run daily at 2:30 AM UTC = ~8:00 AM Sri Lanka time (UTC+5:30)
+  schedule:
+    - cron: "30 2 * * *"
+
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "What to scrape"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - banks-only
+          - gold-only
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r scraper/requirements.txt
+          playwright install chromium --with-deps
+
+      - name: Run scraper (scheduled — all)
+        if: github.event_name == 'schedule'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          EXCHANGE_RATE_API_KEY: ${{ secrets.EXCHANGE_RATE_API_KEY }}
+        run: |
+          cd scraper
+          python scraper.py
+
+      - name: Run scraper (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          EXCHANGE_RATE_API_KEY: ${{ secrets.EXCHANGE_RATE_API_KEY }}
+        run: |
+          cd scraper
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" = "banks-only" ]; then
+            python scraper.py --banks-only
+          elif [ "$MODE" = "gold-only" ]; then
+            python scraper.py --gold-only
+          else
+            python scraper.py
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Scraper failed! Check the logs above."
+          echo "The website HTML structure may have changed for one or more banks."

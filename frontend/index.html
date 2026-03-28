@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SL Rates — Gold & FD Rates in Sri Lanka</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ── Header ───────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="container">
+      <div class="header-inner">
+        <div class="logo">
+          <span class="logo-icon">🇱🇰</span>
+          <span class="logo-text">SL<strong>Rates</strong></span>
+        </div>
+        <div class="header-meta">
+          <span id="last-updated" class="last-updated">Loading...</span>
+          <button id="refresh-btn" class="btn-refresh" onclick="refreshRates()">
+            <span class="refresh-icon">↻</span> Refresh Now
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Hero ─────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="container">
+      <h1>Daily Gold & FD Rates</h1>
+      <p>Live gold prices and fixed deposit rates from top Sri Lankan banks — updated daily.</p>
+    </div>
+  </section>
+
+  <!-- ── Main content ─────────────────────────────────────────── -->
+  <main class="container main-grid">
+
+    <!-- Gold Card -->
+    <section class="card gold-card">
+      <div class="card-header">
+        <h2>🪙 Gold Rates Today</h2>
+        <span id="gold-date" class="date-badge">—</span>
+      </div>
+
+      <div id="gold-loading" class="loading-state">
+        <div class="spinner"></div> Loading gold rates...
+      </div>
+
+      <div id="gold-error" class="error-state hidden">
+        ⚠️ Could not load gold rates. Try refreshing.
+      </div>
+
+      <div id="gold-content" class="hidden">
+        <!-- International reference -->
+        <div class="gold-reference">
+          <div class="reference-item">
+            <span class="ref-label">International Spot</span>
+            <span id="gold-usd" class="ref-value gold-usd">—</span>
+          </div>
+          <div class="reference-item">
+            <span class="ref-label">USD → LKR</span>
+            <span id="gold-fx" class="ref-value">—</span>
+          </div>
+        </div>
+
+        <!-- Sri Lanka rates grid -->
+        <div class="gold-grid">
+          <div class="gold-tile">
+            <div class="karat">24K</div>
+            <div class="gold-price" id="gold-24k">—</div>
+            <div class="gold-unit">per gram</div>
+          </div>
+          <div class="gold-tile featured">
+            <div class="karat">22K</div>
+            <div class="gold-price" id="gold-22k">—</div>
+            <div class="gold-unit">per gram</div>
+          </div>
+          <div class="gold-tile">
+            <div class="karat">21K</div>
+            <div class="gold-price" id="gold-21k">—</div>
+            <div class="gold-unit">per gram</div>
+          </div>
+          <div class="gold-tile">
+            <div class="karat">18K</div>
+            <div class="gold-price" id="gold-18k">—</div>
+            <div class="gold-unit">per gram</div>
+          </div>
+          <div class="gold-tile pavan">
+            <div class="karat">22K Pavan</div>
+            <div class="gold-price" id="gold-pavan">—</div>
+            <div class="gold-unit">per pavan (8g)</div>
+          </div>
+        </div>
+
+        <p class="gold-note">
+          ℹ️ Based on international spot price. Local dealer rates may vary slightly.
+        </p>
+      </div>
+    </section>
+
+    <!-- FD Rates Card -->
+    <section class="card fd-card">
+      <div class="card-header">
+        <h2>🏦 Fixed Deposit Rates</h2>
+        <span id="fd-date" class="date-badge">—</span>
+      </div>
+
+      <!-- Bank filter tabs -->
+      <div class="bank-tabs" id="bank-tabs">
+        <button class="tab active" data-bank="all">All Banks</button>
+        <button class="tab" data-bank="Commercial Bank">ComBank</button>
+        <button class="tab" data-bank="Sampath Bank">Sampath</button>
+        <button class="tab" data-bank="HNB">HNB</button>
+      </div>
+
+      <div id="fd-loading" class="loading-state">
+        <div class="spinner"></div> Loading FD rates...
+      </div>
+
+      <div id="fd-error" class="error-state hidden">
+        ⚠️ Could not load FD rates. Try refreshing.
+      </div>
+
+      <div id="fd-content" class="hidden">
+        <table class="rates-table" id="fd-table">
+          <thead>
+            <tr>
+              <th>Bank</th>
+              <th>Tenure</th>
+              <th>Rate (% p.a.)</th>
+            </tr>
+          </thead>
+          <tbody id="fd-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Footer ───────────────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="container">
+      <p>
+        Data scraped from official bank websites. For reference only — confirm rates directly with your bank.
+        Gold prices based on international spot price converted to LKR.
+      </p>
+    </div>
+  </footer>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
