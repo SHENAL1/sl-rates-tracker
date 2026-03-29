@@ -1,7 +1,15 @@
 """
 Nations Trust Bank (NTB) Sri Lanka - FD Rate Scraper
-Page: https://www.ntb.lk/personal/deposits/fixed-deposits
-Strategy: Tries static HTML first, falls back to Playwright.
+URLs tried:
+  - https://www.ntb.lk/personal/deposits/fixed-deposits
+  - https://www.ntb.lk/rates
+  - https://www.ntb.lk/interest-rates
+
+Filtering rules (strict):
+  1. Tenure must START with a digit  (e.g. "1 Month", "12 Months", "365 Days")
+  2. Tenure must contain a time unit  (month / year / day / week)
+  3. Rate must be between 1% and 20%
+  4. Tenure must not contain currency / loan / non-FD keywords
 """
 
 import re
@@ -18,91 +26,114 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# NTB publishes rates on their deposits/rates page
 URLS = [
     "https://www.ntb.lk/personal/deposits/fixed-deposits",
     "https://www.ntb.lk/rates",
     "https://www.ntb.lk/interest-rates",
 ]
 
-FD_KEYWORDS    = ["fixed deposit", "term deposit", "fd"]
-RATE_KEYWORDS  = ["rate", "interest", "%", "p.a", "per annum"]
+FD_RATE_MIN = 1.0
+FD_RATE_MAX = 20.0
+
+TIME_UNITS = ["month", "year", "day", "week"]
+
+BAD_TENURE_WORDS = {
+    "loan", "loans", "lending", "leasing", "overdraft", "agri",
+    "platinum", "apr", "treasury", "t-bill", "gold loan",
+    "saving", "credit", "advance",
+    "usd", "gbp", "eur", "aud", "dollar", "pound", "euro", "franc",
+    "yen", "yuan", "foreign", "fcbu", "forex", "currency",
+}
+
+FD_SECTION_KEYWORDS = ["fixed deposit", "term deposit", "fd rate", "fixed term"]
+NON_FD_SECTION_KEYWORDS = [
+    "saving", "lending", "loan", "leasing", "overdraft", "forex",
+    "exchange rate", "treasury", "current account", "pawning",
+]
 
 
-def _parse_rate(value: str) -> float | None:
-    value = value.replace("%", "").strip()
+def _clean(text: str) -> str:
+    return " ".join(text.split()).strip()
+
+
+def _is_valid_tenure(text: str) -> bool:
+    t = _clean(text)
+    if not t:
+        return False
+    if not re.match(r"^\d", t):          # must start with a digit
+        return False
+    tl = t.lower()
+    if not any(u in tl for u in TIME_UNITS):   # must have a time unit
+        return False
+    if any(w in tl for w in BAD_TENURE_WORDS): # no loan/currency words
+        return False
+    return True
+
+
+def _parse_fd_rate(value: str) -> float | None:
+    value = _clean(value).replace("%", "")
     range_match = re.match(r"([\d.]+)\s*[-–]\s*([\d.]+)", value)
     if range_match:
-        return float(range_match.group(2))
-    try:
-        v = float(value)
-        return v if v > 0 else None
-    except ValueError:
-        return None
+        rate = float(range_match.group(2))
+    else:
+        try:
+            rate = float(value)
+        except ValueError:
+            return None
+    return rate if FD_RATE_MIN <= rate <= FD_RATE_MAX else None
+
+
+def _process_table(table) -> list[dict]:
+    results = []
+    for row in table.find_all("tr"):
+        cells = row.find_all(["td", "th"])
+        cell_texts = [_clean(c.get_text()) for c in cells]
+        if len(cell_texts) < 2:
+            continue
+        tenure = cell_texts[0]
+        if not _is_valid_tenure(tenure):
+            continue
+        rate = None
+        notes = ""
+        for i, val in enumerate(cell_texts[1:], 1):
+            rate = _parse_fd_rate(val)
+            if rate is not None:
+                notes = " | ".join(cell_texts[i+1:]) if i+1 < len(cell_texts) else ""
+                break
+        if rate is not None:
+            results.append({
+                "bank": "NTB",
+                "tenure": tenure,
+                "rate_percent": rate,
+                "notes": notes,
+                "scraped_date": str(date.today()),
+            })
+    return results
 
 
 def _extract_from_soup(soup: BeautifulSoup) -> list[dict]:
     results = []
 
-    for heading in soup.find_all(["h1","h2","h3","h4","h5","strong","b"]):
-        heading_text = heading.get_text(strip=True).lower()
-        if any(k in heading_text for k in FD_KEYWORDS):
-            table = heading.find_next("table")
-            if not table:
+    # Strategy 1: only tables under FD section headings
+    inside_fd = False
+    for el in soup.find_all(["h1","h2","h3","h4","h5","h6","p","div","section","table"]):
+        text = _clean(el.get_text())
+        if el.name != "table" and len(text) < 120:
+            tl = text.lower()
+            if any(k in tl for k in FD_SECTION_KEYWORDS):
+                inside_fd = True
                 continue
-            for row in table.find_all("tr"):
-                cells = row.find_all(["td","th"])
-                cell_texts = [c.get_text(strip=True) for c in cells]
-                if len(cell_texts) < 2:
-                    continue
-                row_text = " ".join(cell_texts).lower()
-                if any(k in row_text for k in ["tenure","period","term","rate","interest","month"]):
-                    continue
-                tenure = cell_texts[0]
-                rate = None
-                notes = ""
-                for i, val in enumerate(cell_texts[1:], 1):
-                    rate = _parse_rate(val)
-                    if rate is not None:
-                        notes = " | ".join(cell_texts[i+1:]) if i+1 < len(cell_texts) else ""
-                        break
-                if tenure and rate is not None:
-                    results.append({
-                        "bank": "NTB",
-                        "tenure": tenure,
-                        "rate_percent": rate,
-                        "notes": notes,
-                        "scraped_date": str(date.today()),
-                    })
+            elif any(k in tl for k in NON_FD_SECTION_KEYWORDS) and inside_fd:
+                inside_fd = False
+                continue
+        if el.name == "table" and inside_fd:
+            results.extend(_process_table(el))
+            inside_fd = False
 
+    # Strategy 2: fallback — scan all tables with strict filtering
     if not results:
         for table in soup.find_all("table"):
-            if not any(k in table.get_text(" ").lower() for k in RATE_KEYWORDS):
-                continue
-            for row in table.find_all("tr"):
-                cells = row.find_all(["td","th"])
-                cell_texts = [c.get_text(strip=True) for c in cells]
-                if len(cell_texts) < 2:
-                    continue
-                row_text = " ".join(cell_texts).lower()
-                if any(k in row_text for k in ["tenure","period","term","rate","interest"]):
-                    continue
-                tenure = cell_texts[0]
-                rate = None
-                notes = ""
-                for i, val in enumerate(cell_texts[1:], 1):
-                    rate = _parse_rate(val)
-                    if rate is not None:
-                        notes = " | ".join(cell_texts[i+1:]) if i+1 < len(cell_texts) else ""
-                        break
-                if tenure and rate is not None:
-                    results.append({
-                        "bank": "NTB",
-                        "tenure": tenure,
-                        "rate_percent": rate,
-                        "notes": notes,
-                        "scraped_date": str(date.today()),
-                    })
+            results.extend(_process_table(table))
 
     return results
 
@@ -124,7 +155,7 @@ def scrape() -> list[dict]:
         except Exception as e:
             print(f"[NTB] Static fetch failed for {url}: {e}")
 
-    # Playwright fallback — try each URL
+    # Playwright fallback
     if not results:
         print("[NTB] Trying Playwright...")
         try:
@@ -149,6 +180,14 @@ def scrape() -> list[dict]:
                 browser.close()
         except Exception as e:
             print(f"[NTB] Playwright error: {e}")
+
+    # Deduplicate
+    seen = {}
+    for r in results:
+        key = re.sub(r"\s+", " ", r["tenure"].lower().strip())
+        if key not in seen or r["rate_percent"] > seen[key]["rate_percent"]:
+            seen[key] = r
+    results = list(seen.values())
 
     if not results:
         print("[NTB] WARNING: No FD rate tables found.")

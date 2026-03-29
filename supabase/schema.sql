@@ -64,12 +64,33 @@ CREATE POLICY "Service role full access gold_rates"
 
 -- ── Useful views ──────────────────────────────────────────────────────────────
 
--- Latest FD rates per bank (most recent scrape date)
+-- Latest FD rates per bank — strictly filtered to real FD rates only.
+-- Filtering rules:
+--   1. Tenure must contain a time unit (month/year/day/week)
+--   2. Rate must be between 1% and 20%
+--   3. Tenure must START with a digit (rejects "Fixed Loans...", "Short Term Gold Loans...", etc.)
+--   4. No currency or loan keywords in tenure
+--   5. Whitespace is normalised for deduplication
 CREATE OR REPLACE VIEW latest_fd_rates AS
+WITH normalized AS (
+  SELECT
+    bank,
+    regexp_replace(trim(tenure), '\s+', ' ', 'g') AS tenure,
+    rate_percent,
+    notes,
+    scraped_date
+  FROM fd_rates
+  WHERE
+    tenure ~* '(month|year|day|week)'
+    AND rate_percent BETWEEN 1.0 AND 20.0
+    AND tenure ~* '^\s*[0-9]'
+    AND tenure !~* '(dollar|pound|euro|franc|yen|yuan|rupee|dirham|kroner|krona|u\.s\.|u\.k\.)'
+    AND tenure !~* '(loan|lending|leasing|overdraft|agri|udara|apr|treasury|t-bill|saving[^s])'
+)
 SELECT DISTINCT ON (bank, tenure)
   bank, tenure, rate_percent, notes, scraped_date
-FROM fd_rates
-ORDER BY bank, tenure, scraped_date DESC;
+FROM normalized
+ORDER BY bank, tenure, scraped_date DESC, rate_percent DESC;
 
 -- Latest gold rate
 CREATE OR REPLACE VIEW latest_gold_rate AS
