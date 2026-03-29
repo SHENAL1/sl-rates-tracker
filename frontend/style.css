@@ -214,7 +214,7 @@ body {
   transition: background 0.15s;
 }
 .gold-tile:last-child { border-right: none; }
-.gold-tile.pavan {
+.gold-tile.pawn {
   grid-column: 1 / -1;
   background: #FFFBEB;
   border-top: 1px solid var(--border);
@@ -235,7 +235,7 @@ body {
   color: var(--text);
   white-space: nowrap;
 }
-.gold-tile.pavan .gold-price { font-size: 1.15rem; color: var(--gold-dark); }
+.gold-tile.pawn .gold-price { font-size: 1.15rem; color: var(--gold-dark); }
 .gold-unit {
   font-size: 0.68rem;
   color: var(--text-muted);
@@ -309,13 +309,54 @@ body {
   font-weight: 600;
   color: white;
 }
-.bank-badge.combank  { background: #B22222; }
-.bank-badge.sampath  { background: #1A5276; }
-.bank-badge.hnb      { background: #1E8449; }
-.bank-badge.nsb      { background: #7D3C98; }
-.bank-badge.ntb      { background: #D35400; }
+/* Real bank brand colours */
+.bank-badge.combank  { background: #1B3F8B; }               /* ComBank — deep navy blue */
+.bank-badge.sampath  { background: #E8720C; }               /* Sampath — brand orange   */
+.bank-badge.hnb      { background: #003087; color: #FFD700; } /* HNB — blue + gold text   */
+.bank-badge.nsb      { background: #1B7A3E; }               /* NSB — government green   */
+.bank-badge.ntb      { background: #1274B8; }               /* NTB — brand teal-blue    */
 
-.rate-value { color: var(--green); }
+.rate-value { color: var(--green); font-weight: 700; }
+
+/* Best-rate highlight badge */
+.best-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: #FEF9C3;
+  color: #92400E;
+  font-weight: 700;
+  border: 1px solid #FCD34D;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Gold history chart */
+.gold-chart-section {
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--border);
+}
+.gold-chart-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.gold-chart-wrap {
+  position: relative;
+  height: 160px;
+}
+.gold-chart-note {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 6px;
+  font-style: italic;
+}
 
 /* ── Toast ───────────────────────────────────────────────────── */
 .toast {
@@ -360,7 +401,7 @@ body {
 
   /* Gold grid: 2x2 on small screens */
   .gold-grid { grid-template-columns: repeat(2, 1fr); }
-  .gold-tile.pavan {
+  .gold-tile.pawn {
     grid-column: 1 / -1;
     display: flex;
     align-items: center;

@@ -1,10 +1,9 @@
 /**
  * SL Rates Tracker — Frontend App
  * Reads from Supabase (public anon key, read-only)
- * Config: edit SUPABASE_URL and SUPABASE_ANON_KEY below
  */
 
-// ─── CONFIG — update these with your Supabase project values ──────────────────
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
 const SUPABASE_URL      = "https://bcpdrudyqtatzzisxygd.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjcGRydWR5cXRhdHp6aXN4eWdkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MDU2MDQsImV4cCI6MjA5MDI4MTYwNH0._CUdNVnQwq9UPbGbfAJ8GJkq3zXDzhM7J55fN1aevxs";
 // ─────────────────────────────────────────────────────────────────────────────
@@ -16,7 +15,7 @@ const HEADERS = {
   "Content-Type":  "application/json",
 };
 
-// ─── Supabase fetch helpers ───────────────────────────────────────────────────
+// ─── Supabase helpers ─────────────────────────────────────────────────────────
 
 async function supaFetch(endpoint, params = {}) {
   const url = new URL(`${API}/${endpoint}`);
@@ -28,8 +27,9 @@ async function supaFetch(endpoint, params = {}) {
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-let allFdRates   = [];
-let activeBank   = "all";
+let allFdRates = [];
+let activeBank = "all";
+let goldChartInstance = null;
 
 // ─── Format helpers ───────────────────────────────────────────────────────────
 
@@ -54,16 +54,48 @@ function bankSlug(bank) {
   if (b.includes("sampath"))    return "sampath";
   if (b.includes("hnb"))        return "hnb";
   if (b.includes("nsb"))        return "nsb";
-  if (b.includes("ntb"))        return "ntb";
+  if (b.includes("ntb") || b.includes("nations trust")) return "ntb";
   return b.replace(/\s+/g, "-");
 }
 
-// ─── Gold rates ───────────────────────────────────────────────────────────────
+// ─── Tenure sorting helpers ───────────────────────────────────────────────────
+
+/**
+ * Convert a tenure string to approximate days for sorting (shortest first).
+ * e.g. "1 Month" → 30, "3 Months" → 90, "100 Days" → 100, "2 Years" → 730
+ */
+function tenureToDays(tenure) {
+  if (!tenure) return 99999;
+  const t = tenure.toLowerCase();
+
+  // Extract the leading number
+  const numMatch = t.match(/^(\d+(?:\.\d+)?)/);
+  if (!numMatch) return 99999;
+  const num = parseFloat(numMatch[1]);
+
+  if (t.includes("day"))   return num;
+  if (t.includes("week"))  return num * 7;
+  if (t.includes("month")) return num * 30;
+  if (t.includes("year"))  return num * 365;
+  return 99999;
+}
+
+/**
+ * Normalize tenure to just the base duration (strip payment frequency suffixes).
+ * Used for "best rate" grouping: "12 Months (Monthly)" → "12 months"
+ */
+function baseTenure(tenure) {
+  return tenure
+    .toLowerCase()
+    .replace(/\s*\(.*?\)/g, "")   // remove anything in parentheses
+    .replace(/\s*-\s*(interest|monthly|annually|maturity|at maturity).*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // ─── Live gold & exchange rate fetchers ──────────────────────────────────────
 
 async function fetchLiveGoldUSD() {
-  // Primary: goldprice.org (no key, CORS-friendly)
   try {
     const r = await fetch("https://data-asg.goldprice.org/dbXRates/USD");
     const d = await r.json();
@@ -71,7 +103,6 @@ async function fetchLiveGoldUSD() {
     if (price) return parseFloat(price);
   } catch (_) {}
 
-  // Fallback: metals.live (no key)
   try {
     const r = await fetch("https://metals.live/api/v1/latest");
     const d = await r.json();
@@ -83,7 +114,6 @@ async function fetchLiveGoldUSD() {
 }
 
 async function fetchLiveUSDtoLKR() {
-  // open.er-api.com — completely free, no key, CORS-friendly
   try {
     const r = await fetch("https://open.er-api.com/v6/latest/USD");
     const d = await r.json();
@@ -91,7 +121,6 @@ async function fetchLiveUSDtoLKR() {
     if (rate) return parseFloat(rate);
   } catch (_) {}
 
-  // Fallback: frankfurter.app
   try {
     const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=LKR");
     const d = await r.json();
@@ -115,6 +144,139 @@ function calcGoldRates(goldUSD, usdToLKR) {
   };
 }
 
+// ─── Gold history chart ───────────────────────────────────────────────────────
+
+async function loadGoldChart(currentGoldUSD, currentUSDtoLKR) {
+  const noteEl = document.getElementById("gold-chart-note");
+
+  try {
+    // Try fetching 30-day historical data from goldprice.org
+    let labels = [];
+    let prices = [];
+
+    try {
+      const r = await fetch("https://data-asg.goldprice.org/GetData/XAU-USD/30");
+      const raw = await r.json();
+      // raw is typically an array of strings like "timestamp,price"
+      if (Array.isArray(raw) && raw.length > 0) {
+        // Also get current exchange rate to convert USD→LKR
+        const usdLkr = currentUSDtoLKR || 320;
+        raw.forEach(item => {
+          // Item format: "timestamp,usdPrice" or similar
+          const parts = String(item).split(",");
+          if (parts.length >= 2) {
+            const ts   = parseFloat(parts[0]);
+            const usdP = parseFloat(parts[1]);
+            if (!isNaN(ts) && !isNaN(usdP)) {
+              const d = new Date(ts * 1000);
+              labels.push(d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }));
+              prices.push(Math.round((usdP * usdLkr) / 31.1035 * 100) / 100);
+            }
+          }
+        });
+      }
+    } catch (_) {}
+
+    // Fallback: use stored Supabase gold_rates
+    if (prices.length < 3) {
+      const data = await supaFetch("gold_rates", {
+        select: "scraped_date,gold_lkr_per_gram_24k",
+        order:  "scraped_date.asc",
+        limit:  "30",
+      });
+      if (data && data.length > 0) {
+        labels = data.map(r => fmtDate(r.scraped_date));
+        prices = data.map(r => parseFloat(r.gold_lkr_per_gram_24k));
+      }
+    }
+
+    // If we have at least today's rate, add it as the last point
+    if (currentGoldUSD && currentUSDtoLKR) {
+      const todayLabel = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+      const todayPrice = Math.round((currentGoldUSD * currentUSDtoLKR) / 31.1035 * 100) / 100;
+      // Avoid duplicate if last label is today
+      if (labels[labels.length - 1] !== todayLabel) {
+        labels.push(todayLabel);
+        prices.push(todayPrice);
+      }
+    }
+
+    if (prices.length < 2) {
+      noteEl.textContent = "Not enough history yet — chart will populate as data accumulates daily.";
+      return;
+    }
+
+    // Destroy previous chart instance if any
+    if (goldChartInstance) goldChartInstance.destroy();
+
+    const ctx = document.getElementById("gold-chart").getContext("2d");
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const padding  = (maxPrice - minPrice) * 0.1 || 500;
+
+    goldChartInstance = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "24K Gold (LKR/g)",
+          data: prices,
+          borderColor:     "#C9A84C",
+          backgroundColor: "rgba(201,168,76,0.12)",
+          borderWidth: 2,
+          pointRadius: prices.length > 15 ? 0 : 3,
+          pointHoverRadius: 5,
+          fill: true,
+          tension: 0.3,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` LKR ${ctx.parsed.y.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              font: { size: 10 },
+              color: "#94A3B8",
+              maxTicksLimit: 8,
+              maxRotation: 0,
+            },
+          },
+          y: {
+            min: Math.floor((minPrice - padding) / 100) * 100,
+            max: Math.ceil((maxPrice + padding) / 100) * 100,
+            grid: { color: "rgba(0,0,0,0.05)" },
+            ticks: {
+              font: { size: 10 },
+              color: "#94A3B8",
+              callback: (v) => `LKR ${v.toLocaleString()}`,
+            },
+          },
+        },
+      },
+    });
+
+    if (prices.length < 7) {
+      noteEl.textContent = `${prices.length} day(s) of data so far — chart fills in automatically each day.`;
+    } else {
+      noteEl.textContent = "";
+    }
+
+  } catch (err) {
+    console.warn("[GoldChart]", err);
+    noteEl.textContent = "Could not load historical gold data.";
+  }
+}
+
 // ─── Gold rates ───────────────────────────────────────────────────────────────
 
 async function loadGoldRates() {
@@ -123,7 +285,6 @@ async function loadGoldRates() {
   document.getElementById("gold-error").classList.add("hidden");
 
   try {
-    // Fetch gold price + exchange rate live in parallel
     const [goldUSD, usdToLKR] = await Promise.all([
       fetchLiveGoldUSD(),
       fetchLiveUSDtoLKR(),
@@ -132,12 +293,10 @@ async function loadGoldRates() {
     let g;
 
     if (goldUSD && usdToLKR) {
-      // Live data — calculate fresh
       g = calcGoldRates(goldUSD, usdToLKR);
       g.scraped_date = new Date().toISOString().split("T")[0];
       g.isLive = true;
     } else {
-      // Fallback to Supabase cached data if live APIs fail
       console.warn("[Gold] Live APIs failed, falling back to Supabase cache.");
       const data = await supaFetch("gold_rates", {
         select: "*",
@@ -156,12 +315,19 @@ async function loadGoldRates() {
     document.getElementById("gold-21k").textContent   = fmtLKR(g.gold_lkr_per_gram_21k);
     document.getElementById("gold-18k").textContent   = fmtLKR(g.gold_lkr_per_gram_18k);
     document.getElementById("gold-pavan").textContent = fmtLKR(g.gold_lkr_per_pavan_22k);
+
     const goldDateEl = document.getElementById("gold-date");
     goldDateEl.textContent = g.isLive ? "⚡ Live" : fmtDate(g.scraped_date);
     goldDateEl.className   = g.isLive ? "date-badge live" : "date-badge";
 
     document.getElementById("gold-loading").classList.add("hidden");
     document.getElementById("gold-content").classList.remove("hidden");
+
+    // Load the history chart after showing gold content
+    const usdVal = g.isLive ? g.gold_usd_per_oz : null;
+    const fxVal  = g.isLive ? g.usd_to_lkr       : null;
+    loadGoldChart(usdVal, fxVal);
+
   } catch (err) {
     console.error("[Gold]", err);
     document.getElementById("gold-loading").classList.add("hidden");
@@ -177,17 +343,15 @@ async function loadFdRates() {
   document.getElementById("fd-error").classList.add("hidden");
 
   try {
-    // Use the latest_fd_rates view (most recent per bank+tenure)
     const data = await supaFetch("latest_fd_rates", {
       select: "*",
       order:  "bank.asc,rate_percent.desc",
-      limit:  "200",
+      limit:  "500",
     });
 
     if (!data || data.length === 0) throw new Error("No FD rate data available.");
     allFdRates = data;
 
-    // Update date badge (most recent)
     const latestDate = data.reduce((max, r) => r.scraped_date > max ? r.scraped_date : max, "");
     document.getElementById("fd-date").textContent = fmtDate(latestDate);
 
@@ -215,13 +379,42 @@ function renderFdTable() {
     return;
   }
 
-  filtered.forEach(row => {
+  // ── Sort by tenure duration (shortest first) ──────────────────
+  const sorted = [...filtered].sort((a, b) => {
+    const daysA = tenureToDays(a.tenure);
+    const daysB = tenureToDays(b.tenure);
+    if (daysA !== daysB) return daysA - daysB;
+    // Same duration: sort by rate descending
+    return parseFloat(b.rate_percent) - parseFloat(a.rate_percent);
+  });
+
+  // ── Build "best rate per base-tenure" map (across ALL banks, not just filtered) ──
+  const bestRateMap = {};   // baseTenure key → { rate, bank }
+  allFdRates.forEach(r => {
+    const key  = baseTenure(r.tenure);
+    const rate = parseFloat(r.rate_percent);
+    if (!bestRateMap[key] || rate > bestRateMap[key].rate) {
+      bestRateMap[key] = { rate, bank: r.bank };
+    }
+  });
+
+  // ── Render rows ───────────────────────────────────────────────
+  sorted.forEach(row => {
     const slug = bankSlug(row.bank);
+    const rate = parseFloat(row.rate_percent);
+    const key  = baseTenure(row.tenure);
+    const best = bestRateMap[key];
+
+    const isBest = best && Math.abs(best.rate - rate) < 0.001;
+    const bestBadge = isBest
+      ? `<span class="best-badge" title="Best rate for this tenure across all banks">★ Best</span>`
+      : "";
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><span class="bank-badge ${slug}">${row.bank}</span></td>
       <td>${row.tenure}</td>
-      <td><span class="rate-value">${Number(row.rate_percent).toFixed(2)}%</span></td>
+      <td><span class="rate-value">${rate.toFixed(2)}%</span>${bestBadge}</td>
     `;
     tbody.appendChild(tr);
   });

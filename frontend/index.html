@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Chart.js for gold history graph -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -89,16 +91,26 @@
             <div class="gold-price" id="gold-18k">—</div>
             <div class="gold-unit">per gram</div>
           </div>
-          <div class="gold-tile pavan">
-            <div class="karat">22K Pavan</div>
+          <!-- Pawn (was Pavan) -->
+          <div class="gold-tile pawn">
+            <div class="karat">22K Pawn</div>
             <div class="gold-price" id="gold-pavan">—</div>
-            <div class="gold-unit">per pavan (8g)</div>
+            <div class="gold-unit">per pawn (8g)</div>
           </div>
         </div>
 
         <p class="gold-note">
           ℹ️ Based on international spot price. Local dealer rates may vary slightly.
         </p>
+
+        <!-- Gold 30-day history chart -->
+        <div class="gold-chart-section">
+          <div class="gold-chart-title">📈 24K Gold — 30 Day Trend (LKR/g)</div>
+          <div class="gold-chart-wrap">
+            <canvas id="gold-chart"></canvas>
+          </div>
+          <div class="gold-chart-note" id="gold-chart-note"></div>
+        </div>
       </div>
     </section>
 

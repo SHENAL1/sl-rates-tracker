@@ -23,7 +23,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-URL = "https://www.nsb.lk/interest-rates/"
+URL = "https://www.nsb.lk/rates-tarriffs/rupee-deposit-rates/"
 
 FD_RATE_MIN = 1.0
 FD_RATE_MAX = 20.0
