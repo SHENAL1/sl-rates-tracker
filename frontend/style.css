@@ -114,16 +114,47 @@ body {
   margin: 0 auto;
 }
 
-/* ── Main grid ───────────────────────────────────────────────── */
-.main-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-  padding: 32px 20px 48px;
+/* ── Main tab switcher ───────────────────────────────────────── */
+.main-tabs-wrap {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 52px;
+  z-index: 90;
 }
-@media (max-width: 768px) {
-  .main-grid { grid-template-columns: 1fr; }
+.main-tabs {
+  display: flex;
+  gap: 0;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 20px;
 }
+.main-tab {
+  padding: 14px 28px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+.main-tab:hover { color: var(--accent); }
+.main-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Main content (single panel at a time) ──────────────────── */
+.main-content {
+  padding: 28px 20px 48px;
+  max-width: 900px;
+}
+.panel { width: 100%; }
+
+/* ── Cards ───────────────────────────────────────────────────── */
 
 /* ── Cards ───────────────────────────────────────────────────── */
 .card {

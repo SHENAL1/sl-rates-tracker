@@ -70,6 +70,25 @@ def _clean(text: str) -> str:
     return " ".join(text.split()).strip()
 
 
+def _normalize_tenure(text: str) -> str:
+    """
+    Normalise a ComBank tenure label so different wordings of the same
+    product collapse to one canonical string.
+      "6 Month (LKR)"          → "6 Month"
+      "500 Days Fixed Deposit" → "500 Days"
+      "12 Months (LKR)"        → "12 Months"
+    Payment-frequency suffixes like "-Interest paid monthly (LKR)" are kept
+    because they represent genuinely different products.
+    """
+    import re as _re
+    t = _clean(text)
+    # Remove trailing "(LKR)" or "(lkr)"
+    t = _re.sub(r"\s*\(LKR\)\s*$", "", t, flags=_re.IGNORECASE)
+    # Remove trailing "Fixed Deposit"
+    t = _re.sub(r"\s+Fixed\s+Deposit\s*$", "", t, flags=_re.IGNORECASE)
+    return _clean(t)
+
+
 def _is_valid_tenure(text: str) -> bool:
     """
     Returns True only for genuine FD tenures.
@@ -126,7 +145,7 @@ def _process_table(table, label: str = "") -> list[dict]:
         if len(cell_texts) < 2:
             continue
 
-        tenure = cell_texts[0]
+        tenure = _normalize_tenure(cell_texts[0])
         if not _is_valid_tenure(tenure):
             continue
 
@@ -182,11 +201,10 @@ def _extract_fd_sections(soup: BeautifulSoup, label: str = "") -> list[dict]:
             # Only read the first table per section (stop after one table per heading)
             inside_fd_section = False
 
-    # Fallback: if section detection found nothing, scan all tables with strict filters
+    # NOTE: No all-tables fallback here — the rates-tariff page contains lending
+    # and savings tables that we must NOT accidentally read.
     if not results:
-        print(f"[ComBank] Section detection found nothing ({label}), falling back to all-tables scan.")
-        for table in soup.find_all("table"):
-            results.extend(_process_table(table, label))
+        print(f"[ComBank] Section detection found no FD tables ({label}).")
 
     return results
 
@@ -220,12 +238,13 @@ def scrape() -> list[dict]:
         results.extend(special)
         print(f"[ComBank] Special FDs: {len(special)} entries")
 
-    # Deduplicate by (tenure normalised, rate) — keep highest rate for same tenure
+    # Deduplicate by normalised tenure — keep highest rate for same tenure
     seen = {}
     for r in results:
         key = re.sub(r"\s+", " ", r["tenure"].lower().strip())
         if key not in seen or r["rate_percent"] > seen[key]["rate_percent"]:
             seen[key] = r
+            seen[key]["tenure"] = _normalize_tenure(r["tenure"])
 
     deduped = list(seen.values())
 

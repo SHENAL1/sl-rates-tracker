@@ -7,7 +7,6 @@
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <!-- Chart.js for gold history graph -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -38,11 +37,21 @@
     </div>
   </section>
 
-  <!-- ── Main content ─────────────────────────────────────────── -->
-  <main class="container main-grid">
+  <!-- ── Main tab switcher ──────────────────────────────────────── -->
+  <div class="main-tabs-wrap">
+    <div class="container">
+      <div class="main-tabs" id="main-tabs">
+        <button class="main-tab active" data-panel="gold-panel">🪙 Gold Rates</button>
+        <button class="main-tab"        data-panel="fd-panel">🏦 FD Rates</button>
+      </div>
+    </div>
+  </div>
 
-    <!-- Gold Card -->
-    <section class="card gold-card">
+  <!-- ── Main content ─────────────────────────────────────────── -->
+  <main class="container main-content">
+
+    <!-- ══ GOLD PANEL ══════════════════════════════════════════ -->
+    <section id="gold-panel" class="panel card">
       <div class="card-header">
         <h2>🪙 Gold Rates Today</h2>
         <span id="gold-date" class="date-badge">—</span>
@@ -51,7 +60,6 @@
       <div id="gold-loading" class="loading-state">
         <div class="spinner"></div> Loading gold rates...
       </div>
-
       <div id="gold-error" class="error-state hidden">
         ⚠️ Could not load gold rates. Try refreshing.
       </div>
@@ -91,7 +99,6 @@
             <div class="gold-price" id="gold-18k">—</div>
             <div class="gold-unit">per gram</div>
           </div>
-          <!-- Pawn (was Pavan) -->
           <div class="gold-tile pawn">
             <div class="karat">22K Pawn</div>
             <div class="gold-price" id="gold-pavan">—</div>
@@ -114,8 +121,8 @@
       </div>
     </section>
 
-    <!-- FD Rates Card -->
-    <section class="card fd-card">
+    <!-- ══ FD PANEL ════════════════════════════════════════════ -->
+    <section id="fd-panel" class="panel card hidden">
       <div class="card-header">
         <h2>🏦 Fixed Deposit Rates</h2>
         <span id="fd-date" class="date-badge">—</span>
@@ -134,13 +141,12 @@
       <div id="fd-loading" class="loading-state">
         <div class="spinner"></div> Loading FD rates...
       </div>
-
       <div id="fd-error" class="error-state hidden">
         ⚠️ Could not load FD rates. Try refreshing.
       </div>
 
       <div id="fd-content" class="hidden">
-        <table class="rates-table" id="fd-table">
+        <table class="rates-table">
           <thead>
             <tr>
               <th>Bank</th>
@@ -158,16 +164,11 @@
   <!-- ── Footer ───────────────────────────────────────────────── -->
   <footer class="footer">
     <div class="container">
-      <p>
-        Data scraped from official bank websites. For reference only — confirm rates directly with your bank.
-        Gold prices based on international spot price converted to LKR.
-      </p>
+      <p>Data from official bank websites. For reference only — confirm rates directly with your bank. Gold based on international spot price.</p>
     </div>
   </footer>
 
-  <!-- Toast notification -->
   <div id="toast" class="toast hidden"></div>
-
   <script src="app.js"></script>
 </body>
 </html>

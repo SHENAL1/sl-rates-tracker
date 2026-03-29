@@ -150,51 +150,27 @@ async function loadGoldChart(currentGoldUSD, currentUSDtoLKR) {
   const noteEl = document.getElementById("gold-chart-note");
 
   try {
-    // Try fetching 30-day historical data from goldprice.org
     let labels = [];
     let prices = [];
 
-    try {
-      const r = await fetch("https://data-asg.goldprice.org/GetData/XAU-USD/30");
-      const raw = await r.json();
-      // raw is typically an array of strings like "timestamp,price"
-      if (Array.isArray(raw) && raw.length > 0) {
-        // Also get current exchange rate to convert USD→LKR
-        const usdLkr = currentUSDtoLKR || 320;
-        raw.forEach(item => {
-          // Item format: "timestamp,usdPrice" or similar
-          const parts = String(item).split(",");
-          if (parts.length >= 2) {
-            const ts   = parseFloat(parts[0]);
-            const usdP = parseFloat(parts[1]);
-            if (!isNaN(ts) && !isNaN(usdP)) {
-              const d = new Date(ts * 1000);
-              labels.push(d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }));
-              prices.push(Math.round((usdP * usdLkr) / 31.1035 * 100) / 100);
-            }
-          }
-        });
-      }
-    } catch (_) {}
-
-    // Fallback: use stored Supabase gold_rates
-    if (prices.length < 3) {
-      const data = await supaFetch("gold_rates", {
-        select: "scraped_date,gold_lkr_per_gram_24k",
-        order:  "scraped_date.asc",
-        limit:  "30",
+    // Always use Supabase stored history (seeded + daily scrape appends)
+    const data = await supaFetch("gold_rates", {
+      select: "scraped_date,gold_lkr_per_gram_24k",
+      order:  "scraped_date.asc",
+      limit:  "30",
+    });
+    if (data && data.length > 0) {
+      labels = data.map(r => {
+        const d = new Date(r.scraped_date);
+        return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
       });
-      if (data && data.length > 0) {
-        labels = data.map(r => fmtDate(r.scraped_date));
-        prices = data.map(r => parseFloat(r.gold_lkr_per_gram_24k));
-      }
+      prices = data.map(r => parseFloat(r.gold_lkr_per_gram_24k));
     }
 
-    // If we have at least today's rate, add it as the last point
+    // Append today's live price if not already the last point
     if (currentGoldUSD && currentUSDtoLKR) {
       const todayLabel = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
       const todayPrice = Math.round((currentGoldUSD * currentUSDtoLKR) / 31.1035 * 100) / 100;
-      // Avoid duplicate if last label is today
       if (labels[labels.length - 1] !== todayLabel) {
         labels.push(todayLabel);
         prices.push(todayPrice);
@@ -419,6 +395,20 @@ function renderFdTable() {
     tbody.appendChild(tr);
   });
 }
+
+// ─── Main tab switching (Gold / FD Rates) ─────────────────────────────────────
+
+document.getElementById("main-tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".main-tab");
+  if (!tab) return;
+  const panelId = tab.dataset.panel;
+
+  document.querySelectorAll(".main-tab").forEach(t => t.classList.remove("active"));
+  tab.classList.add("active");
+
+  document.querySelectorAll(".panel").forEach(p => p.classList.add("hidden"));
+  document.getElementById(panelId).classList.remove("hidden");
+});
 
 // ─── Bank filter tabs ─────────────────────────────────────────────────────────
 
